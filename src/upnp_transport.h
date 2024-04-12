@@ -37,4 +37,5 @@ void upnp_transport_init(struct upnp_device *);
 void upnp_transport_register_variable_listener(variable_change_listener_t cb,
 						       void *userdata);
 
+int upnp_transport_toggle_play_pause_state(void);
 #endif /* _UPNP_TRANSPORT_H */

@@ -30,6 +30,7 @@
 
 #include <assert.h>
 #include <gst/gst.h>
+#include <gst/video/navigation.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,6 +40,7 @@
 
 #include "logging.h"
 #include "upnp_connmgr.h"
+#include "upnp_transport.h"
 #include "output_module.h"
 #include "output_gstreamer.h"
 
@@ -359,6 +361,30 @@ static gboolean my_bus_callback(GstBus * bus, GstMessage * msg,
                         gst_element_set_state(player_, GST_STATE_PLAYING);
 		break;
         }
+	case GST_MESSAGE_ELEMENT:
+	{
+		GstNavigationMessageType messageType = gst_navigation_message_get_type(msg);
+
+		if(messageType == GST_NAVIGATION_MESSAGE_EVENT){
+			GstEvent *event = NULL;
+
+			if(gst_navigation_message_parse_event(msg, &event)){
+				GstNavigationEventType eventType = gst_navigation_event_get_type(event);
+
+				if(eventType == GST_NAVIGATION_EVENT_KEY_RELEASE){
+					const gchar *key = NULL;
+
+					if(gst_navigation_event_parse_key_event(event, &key)){
+						if(g_str_equal(key, "XF86AudioPlay") || g_str_equal(key, "XF86AudioPause")){
+							upnp_transport_toggle_play_pause_state();
+						}
+					}	
+				}
+			}
+		}
+
+		break;
+	}
 	default:
 		/*
 		g_print("GStreamer: %s: unhandled message type %d (%s)\n",

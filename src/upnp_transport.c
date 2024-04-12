@@ -866,6 +866,73 @@ static int pause_stream(struct action_event *event)
 	return rc;
 }
 
+int upnp_transport_toggle_play_pause_state(){
+	service_lock();
+
+	int rc = 0;
+
+	enum transport_state dest = TRANSPORT_PLAYING;
+
+	if(transport_state_ == TRANSPORT_PLAYING){
+		dest = TRANSPORT_PAUSED_PLAYBACK;
+	}
+
+	if(dest == TRANSPORT_PLAYING){
+		switch (transport_state_) {
+			case TRANSPORT_PLAYING:
+				// Nothing to change.
+				break;
+
+			case TRANSPORT_STOPPED:
+				// If we were stopped before, we start a new song now. So just
+				// set the time to zero now; otherwise we will see the old
+				// value of the previous song until it updates some fractions
+				// of a second later.
+				replace_var(TRANSPORT_VAR_REL_TIME_POS, kZeroTime);
+
+				/* >>> fall through */
+
+			case TRANSPORT_PAUSED_PLAYBACK:
+				if (output_play(&inform_play_transition_from_output)) {
+					//upnp_set_error(event, 704, "Playing failed");
+					rc = -1;
+				} else {
+					change_transport_state(TRANSPORT_PLAYING);
+					const char *av_uri = get_var(TRANSPORT_VAR_AV_URI);
+					const char *av_meta = get_var(TRANSPORT_VAR_AV_URI_META);
+					replace_current_uri_and_meta(av_uri, av_meta);
+				}
+				
+				break;
+			default:
+				break;
+		}
+	}
+	else if(dest == TRANSPORT_PAUSED_PLAYBACK){
+		switch (transport_state_) {
+			case TRANSPORT_PAUSED_PLAYBACK:
+				// Nothing to change.
+				break;
+
+			case TRANSPORT_PLAYING:
+				if (output_pause()) {
+					//upnp_set_error(event, 704, "Pause failed");
+					rc = -1;
+				} else {
+					change_transport_state(TRANSPORT_PAUSED_PLAYBACK);
+				}
+
+				break;
+			default:
+				break;
+		}
+	}
+
+	service_unlock();
+
+	return rc;
+}
+
 static int seek(struct action_event *event)
 {
 	if (!has_instance_id(event)) {
