@@ -418,6 +418,9 @@ static GstBusSyncReply my_sync_bus_callback(GstBus *bus, GstMessage *message, gp
 			if(display != NULL){
 				XEvent x_event;
 				Atom wm_fullscreen;
+				int screen = DefaultScreen(display);
+
+				XMoveResizeWindow(display, value, 0, 0, DisplayWidth(display, screen), DisplayHeight(display, screen)); 
 
 				x_event.type = ClientMessage;
 				x_event.xclient.window = value;
@@ -427,7 +430,8 @@ static GstBusSyncReply my_sync_bus_callback(GstBus *bus, GstMessage *message, gp
 				wm_fullscreen = XInternAtom(display, "_NET_WM_STATE_FULLSCREEN", False);
 				x_event.xclient.data.l[1] = wm_fullscreen;
 				x_event.xclient.data.l[2] = 0;
-				XSendEvent(display, RootWindow(display, DefaultScreen(display)), False, ClientMessage, &x_event);
+
+				XSendEvent(display, RootWindow(display, screen), False, ClientMessage, &x_event);
 
 				char noData[] = { 0,0,0,0,0,0,0,0 };
 				XColor black;
