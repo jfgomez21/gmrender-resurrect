@@ -37,6 +37,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <inttypes.h>
+#include <X11/Xlib.h>
 
 #include "logging.h"
 #include "upnp_connmgr.h"
@@ -396,6 +397,62 @@ static gboolean my_bus_callback(GstBus * bus, GstMessage * msg,
 	return TRUE;
 }
 
+static gboolean is_have_window_handle_event_x11(GstMessage *message){
+	if(GST_MESSAGE_TYPE(message) == GST_MESSAGE_ELEMENT && gst_message_has_name(message, "have-window-handle")){
+		const gchar *name = G_OBJECT_TYPE_NAME(GST_MESSAGE_SRC(message));
+
+		return g_strcmp0(name, "GstXImageSink") == 0 || g_strcmp0(name, "GstXvImageSink") == 0;
+	}
+
+	return FALSE;
+}
+
+static GstBusSyncReply my_sync_bus_callback(GstBus *bus, GstMessage *message, gpointer user_data){
+	if(is_have_window_handle_event_x11(message)){
+		const GstStructure *st = gst_message_get_structure(message);
+		guint64 value = 0;
+
+		if(gst_structure_get_uint64(st, "window-handle", &value)){
+			Display *display = XOpenDisplay(NULL);
+			
+			if(display != NULL){
+				XEvent x_event;
+				Atom wm_fullscreen;
+
+				x_event.type = ClientMessage;
+				x_event.xclient.window = value;
+				x_event.xclient.message_type = XInternAtom(display, "_NET_WM_STATE", False);
+				x_event.xclient.format = 32;
+				x_event.xclient.data.l[0] = 1;
+				wm_fullscreen = XInternAtom(display, "_NET_WM_STATE_FULLSCREEN", False);
+				x_event.xclient.data.l[1] = wm_fullscreen;
+				x_event.xclient.data.l[2] = 0;
+				XSendEvent(display, RootWindow(display, DefaultScreen(display)), False, ClientMessage, &x_event);
+
+				char noData[] = { 0,0,0,0,0,0,0,0 };
+				XColor black;
+				black.red = black.green = black.blue = 0;
+
+				Pixmap bitmapNoData = XCreateBitmapFromData(display, value, noData, 8, 8);
+				Cursor invisibleCursor = XCreatePixmapCursor(display, bitmapNoData, bitmapNoData, &black, &black, 0, 0);
+
+				XDefineCursor(display, value, invisibleCursor);
+
+				XFreeCursor(display, invisibleCursor);
+				XFreePixmap(display, bitmapNoData);
+				XCloseDisplay(display);
+			}
+			else{
+				Log_error("X11", "failed to open connection to X11");
+			}
+		}
+
+		return GST_BUS_DROP;
+	}
+
+	return GST_BUS_PASS;
+}
+
 static gchar *audio_sink = NULL;
 static gchar *audio_device = NULL;
 static gchar *audio_pipe = NULL;
@@ -560,6 +617,7 @@ static int output_gstreamer_init(void)
 
 	bus = gst_pipeline_get_bus(GST_PIPELINE(player_));
 	gst_bus_add_watch(bus, my_bus_callback, NULL);
+	gst_bus_set_sync_handler(bus, (GstBusSyncHandler) my_sync_bus_callback, NULL, NULL);
 	gst_object_unref(bus);
 
 	if (audio_sink != NULL && audio_pipe != NULL) {
