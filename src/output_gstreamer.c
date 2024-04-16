@@ -31,6 +31,8 @@
 #include <assert.h>
 #include <gst/gst.h>
 #include <gst/video/navigation.h>
+#include <gst/base/gstbasesink.h>
+#include <gst/video/videooverlay.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -397,11 +399,13 @@ static gboolean my_bus_callback(GstBus * bus, GstMessage * msg,
 	return TRUE;
 }
 
+static gboolean is_message_from_type(GstMessage *message, const gchar *type){
+	return g_strcmp0(type, G_OBJECT_TYPE_NAME(GST_MESSAGE_SRC(message))) == 0;
+}
+
 static gboolean is_have_window_handle_event_x11(GstMessage *message){
 	if(GST_MESSAGE_TYPE(message) == GST_MESSAGE_ELEMENT && gst_message_has_name(message, "have-window-handle")){
-		const gchar *name = G_OBJECT_TYPE_NAME(GST_MESSAGE_SRC(message));
-
-		return g_strcmp0(name, "GstXImageSink") == 0 || g_strcmp0(name, "GstXvImageSink") == 0;
+		return is_message_from_type(message, "GstXImageSink") || is_message_from_type(message, "GstXvImageSink");
 	}
 
 	return FALSE;
@@ -420,7 +424,9 @@ static GstBusSyncReply my_sync_bus_callback(GstBus *bus, GstMessage *message, gp
 				Atom wm_fullscreen;
 				int screen = DefaultScreen(display);
 
-				XMoveResizeWindow(display, value, 0, 0, DisplayWidth(display, screen), DisplayHeight(display, screen)); 
+				if(is_message_from_type(message, "GstXvImageSink")){
+					XIconifyWindow(display, value, screen);
+				}
 
 				x_event.type = ClientMessage;
 				x_event.xclient.window = value;
@@ -444,6 +450,11 @@ static GstBusSyncReply my_sync_bus_callback(GstBus *bus, GstMessage *message, gp
 
 				XFreeCursor(display, invisibleCursor);
 				XFreePixmap(display, bitmapNoData);
+
+				if(is_message_from_type(message, "GstXvImageSink")){
+					XMapRaised(display, value);
+				}
+
 				XCloseDisplay(display);
 			}
 			else{
