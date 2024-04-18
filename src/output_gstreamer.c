@@ -48,6 +48,7 @@
 #include "output_gstreamer.h"
 
 static double buffer_duration = 0.0; /* Buffer disbled by default, see #182 */
+static Display *display = NULL;
 
 static void scan_mime_list(void)
 {
@@ -403,7 +404,7 @@ static gboolean is_message_from_type(GstMessage *message, const gchar *type){
 	return g_strcmp0(type, G_OBJECT_TYPE_NAME(GST_MESSAGE_SRC(message))) == 0;
 }
 
-static gboolean is_have_window_handle_event_x11(GstMessage *message){
+static gboolean is_have_window_handle_message_x11(GstMessage *message){
 	if(GST_MESSAGE_TYPE(message) == GST_MESSAGE_ELEMENT && gst_message_has_name(message, "have-window-handle")){
 		return is_message_from_type(message, "GstXImageSink") || is_message_from_type(message, "GstXvImageSink");
 	}
@@ -412,21 +413,38 @@ static gboolean is_have_window_handle_event_x11(GstMessage *message){
 }
 
 static GstBusSyncReply my_sync_bus_callback(GstBus *bus, GstMessage *message, gpointer user_data){
-	if(is_have_window_handle_event_x11(message)){
+	if(gst_is_video_overlay_prepare_window_handle_message(message)){
+		display = XOpenDisplay(NULL);
+		int screen = DefaultScreen(display);
+
+		if(display != NULL){
+			int width = DisplayWidth(display, screen);
+			int height = DisplayHeight(display, screen);
+
+			GST_VIDEO_SINK_WIDTH(GST_MESSAGE_SRC(message)) = width;
+			GST_VIDEO_SINK_HEIGHT(GST_MESSAGE_SRC(message)) = height;
+
+			Log_info("X11", "window size set to %dx%d", width, height);
+		}
+		else{
+			Log_error("X11", "failed to open connection to X11");
+		}
+
+		return GST_BUS_DROP;
+	}
+	else if(is_have_window_handle_message_x11(message)){
 		const GstStructure *st = gst_message_get_structure(message);
 		guint64 value = 0;
 
 		if(gst_structure_get_uint64(st, "window-handle", &value)){
-			Display *display = XOpenDisplay(NULL);
-			
 			if(display != NULL){
 				XEvent x_event;
 				Atom wm_fullscreen;
 				int screen = DefaultScreen(display);
 
-				if(is_message_from_type(message, "GstXvImageSink")){
-					XIconifyWindow(display, value, screen);
-				}
+				//if(is_message_from_type(message, "GstXvImageSink")){
+				//	XIconifyWindow(display, value, screen);
+				//}
 
 				x_event.type = ClientMessage;
 				x_event.xclient.window = value;
@@ -451,14 +469,15 @@ static GstBusSyncReply my_sync_bus_callback(GstBus *bus, GstMessage *message, gp
 				XFreeCursor(display, invisibleCursor);
 				XFreePixmap(display, bitmapNoData);
 
-				if(is_message_from_type(message, "GstXvImageSink")){
-					XMapRaised(display, value);
-				}
+				//if(is_message_from_type(message, "GstXvImageSink")){
+				//	XMapRaised(display, value);
+				//}
 
 				XCloseDisplay(display);
-			}
-			else{
-				Log_error("X11", "failed to open connection to X11");
+
+				display = NULL;
+
+				Log_info("X11", "full screen mode enabled");
 			}
 		}
 
