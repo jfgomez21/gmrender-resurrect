@@ -48,7 +48,6 @@
 #include "output_gstreamer.h"
 
 static double buffer_duration = 0.0; /* Buffer disbled by default, see #182 */
-static Display *display = NULL;
 
 static void scan_mime_list(void)
 {
@@ -413,39 +412,18 @@ static gboolean is_have_window_handle_message_x11(GstMessage *message){
 }
 
 static GstBusSyncReply my_sync_bus_callback(GstBus *bus, GstMessage *message, gpointer user_data){
-	if(gst_is_video_overlay_prepare_window_handle_message(message)){
-		display = XOpenDisplay(NULL);
-		int screen = DefaultScreen(display);
-
-		if(display != NULL){
-			int width = DisplayWidth(display, screen);
-			int height = DisplayHeight(display, screen);
-
-			GST_VIDEO_SINK_WIDTH(GST_MESSAGE_SRC(message)) = width;
-			GST_VIDEO_SINK_HEIGHT(GST_MESSAGE_SRC(message)) = height;
-
-			Log_info("X11", "window size set to %dx%d", width, height);
-		}
-		else{
-			Log_error("X11", "failed to open connection to X11");
-		}
-
-		return GST_BUS_DROP;
-	}
-	else if(is_have_window_handle_message_x11(message)){
+	if(is_have_window_handle_message_x11(message)){
 		const GstStructure *st = gst_message_get_structure(message);
 		guint64 value = 0;
 
 		if(gst_structure_get_uint64(st, "window-handle", &value)){
+			Display *display = XOpenDisplay(NULL);
+			
 			if(display != NULL){
 				XEvent x_event;
 				Atom wm_fullscreen;
 				int screen = DefaultScreen(display);
-
-				//if(is_message_from_type(message, "GstXvImageSink")){
-				//	XIconifyWindow(display, value, screen);
-				//}
-
+				
 				x_event.type = ClientMessage;
 				x_event.xclient.window = value;
 				x_event.xclient.message_type = XInternAtom(display, "_NET_WM_STATE", False);
@@ -469,15 +447,29 @@ static GstBusSyncReply my_sync_bus_callback(GstBus *bus, GstMessage *message, gp
 				XFreeCursor(display, invisibleCursor);
 				XFreePixmap(display, bitmapNoData);
 
-				//if(is_message_from_type(message, "GstXvImageSink")){
-				//	XMapRaised(display, value);
-				//}
+				XRaiseWindow(display, value);
 
+				XEvent se;
+				se.type = Expose;
+				se.xexpose.type = Expose;
+				se.xexpose.serial = 0;
+				se.xexpose.send_event = 1;
+				se.xexpose.window = value;
+				se.xexpose.x = 0;
+				se.xexpose.y = 0;
+				se.xexpose.width = DisplayWidth(display, screen);
+				se.xexpose.height = DisplayHeight(display, screen);
+				se.xexpose.count = 0;
+
+				XSendEvent(display, RootWindow(display, screen), FALSE, ExposureMask, &se);
+
+				XSync(display, FALSE);
 				XCloseDisplay(display);
 
-				display = NULL;
-
 				Log_info("X11", "full screen mode enabled");
+			}
+			else{
+				Log_error("X11", "failed to open connection to X11");
 			}
 		}
 
